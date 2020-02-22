@@ -676,6 +676,20 @@ void usb_hid_register_device(struct device *dev, const uint8_t *desc,
 		&usb_hid_devlist);
 }
 
+void usb_hid_unregister_device(struct device* dev)
+{
+	struct hid_device_info *dev_data = dev->driver_data;
+
+	dev_data->report_desc = NULL;
+	dev_data->report_size = 0;
+	dev_data->ops = NULL;
+	dev_data->common.dev = NULL;
+
+	sys_slist_remove(&usb_hid_devlist, NULL, &dev_data->common.node);
+	LOG_DBG("Removed dev_data %p dev %p from devlist %p", dev_data, dev,
+		&usb_hid_devlist);
+}
+
 int hid_int_ep_write(const struct device *dev, const uint8_t *data, uint32_t data_len,
 		     uint32_t *bytes_ret)
 {
