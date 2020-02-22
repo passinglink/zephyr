@@ -436,6 +436,9 @@ void usb_hid_register_device(const struct device *dev, const uint8_t *desc,
 			     size_t size,
 			     const struct hid_ops *op);
 
+/* Unregister HID device */
+void usb_hid_unregister_device(const struct device *dev);
+
 /* Write to hid interrupt endpoint */
 int hid_int_ep_write(const struct device *dev, const uint8_t *data, uint32_t data_len,
 		     uint32_t *bytes_ret);
