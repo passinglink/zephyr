@@ -891,6 +891,11 @@ void HAL_PCD_ResetCallback(PCD_HandleTypeDef *hpcd)
 		k_sem_give(&usb_dc_stm32_state.in_ep_state[i].write_sem);
 	}
 
+#ifdef USB
+	/* Reclaim PMA allocated for endpoints. */
+	usb_dc_stm32_state.pma_offset = USB_BTABLE_SIZE;
+#endif
+
 	if (usb_dc_stm32_state.status_cb) {
 		usb_dc_stm32_state.status_cb(USB_DC_RESET, NULL);
 	}
