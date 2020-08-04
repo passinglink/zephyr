@@ -1,3 +1,5 @@
+#pragma GCC system_header
+
 /*
  * SPDX-License-Identifier: Apache-2.0
  * Copyright (c) 2020 Nordic Semiconductor
