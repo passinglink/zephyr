@@ -99,6 +99,7 @@ struct mcuboot_v1_raw_header {
 				  BOOT_MAX_ALIGN)
 #define MAGIC_OFFS(bank_area) ((bank_area)->fa_size - BOOT_MAGIC_SZ)
 
+#ifndef CONFIG_MCUBOOT
 static const uint32_t boot_img_magic[4] = {
 	0xf395c277,
 	0x7fefd260,
@@ -107,6 +108,7 @@ static const uint32_t boot_img_magic[4] = {
 };
 
 #define BOOT_MAGIC_ARR_SZ ARRAY_SIZE(boot_img_magic)
+#endif
 
 struct boot_swap_table {
 	/** For each field, a value of 0 means "any". */
@@ -127,6 +129,7 @@ struct boot_swap_state {
 	uint8_t image_ok;  /* One of the BOOT_FLAG_[...] values. */
 };
 
+#ifdef FLASH_AREA_IMAGE_SECONDARY
 /**
  * This set of tables maps image trailer contents to swap operation type.
  * When searching for a match, these tables must be iterated sequentially.
@@ -189,7 +192,9 @@ static const struct boot_swap_table boot_swap_tables[] = {
 	},
 };
 #define BOOT_SWAP_TABLES_COUNT (ARRAY_SIZE(boot_swap_tables))
+#endif
 
+#ifndef CONFIG_MCUBOOT
 static int boot_magic_decode(const uint32_t *magic)
 {
 	if (memcmp(magic, boot_img_magic, BOOT_MAGIC_SZ) == 0) {
@@ -207,7 +212,9 @@ static int boot_flag_decode(uint8_t flag)
 
 	return BOOT_FLAG_SET;
 }
+#endif
 
+#ifndef CONFIG_MCUBOOT
 /* TODO: this function should be moved to flash_area api in future */
 uint8_t flash_area_erased_val(const struct flash_area *fa)
 {
@@ -239,6 +246,7 @@ int flash_area_read_is_empty(const struct flash_area *fa, uint32_t off,
 
 	return 1;
 }
+#endif
 
 static int erased_flag_val(uint8_t bank_id)
 {
@@ -252,6 +260,10 @@ static int erased_flag_val(uint8_t bank_id)
 	return flash_area_erased_val(fa);
 }
 
+#ifdef CONFIG_MCUBOOT
+/* Provided by MCUBoot */
+int boot_magic_compatible_check(uint8_t tbl_val, uint8_t val);
+#else
 /**
  * Determines if a status source table is satisfied by the specified magic
  * code.
@@ -276,7 +288,7 @@ int boot_magic_compatible_check(uint8_t tbl_val, uint8_t val)
 		return tbl_val == val;
 	}
 }
-
+#endif
 static int boot_flag_offs(int flag, const struct flash_area *fa, uint32_t *offs)
 {
 	switch (flag) {
@@ -372,6 +384,7 @@ static int boot_image_ok_write(uint8_t bank_id)
 	return boot_flag_write(BOOT_FLAG_IMAGE_OK, bank_id);
 }
 
+#ifdef FLASH_AREA_IMAGE_SECONDARY
 static int boot_magic_write(uint8_t bank_id)
 {
 	const struct flash_area *fa;
@@ -410,7 +423,8 @@ static int boot_swap_type_write(uint8_t bank_id, uint8_t swap_type)
 
 	return rc;
 }
-#endif
+#endif /* CONFIG_MCUBOOT_TRAILER_SWAP_TYPE */
+#endif /* FLASH_AREA_IMAGE_SECONDARY */
 
 static int boot_read_v1_header(uint8_t area_id,
 			       struct mcuboot_v1_raw_header *v1_raw)
@@ -499,6 +513,7 @@ int boot_read_bank_header(uint8_t area_id,
 	return 0;
 }
 
+#ifndef CONFIG_MCUBOOT
 static int boot_read_swap_state(const struct flash_area *fa,
 				struct boot_swap_state *state)
 {
@@ -573,7 +588,13 @@ static int boot_read_swap_state(const struct flash_area *fa,
 
 	return 0;
 }
+#endif
 
+#ifdef CONFIG_MCUBOOT
+/* provided by MCUBoot */
+int
+boot_read_swap_state_by_id(int flash_area_id, struct boot_swap_state *state);
+#else
 /**
  * Reads the image trailer from the scratch area.
  */
@@ -604,7 +625,7 @@ boot_read_swap_state_by_id(int flash_area_id, struct boot_swap_state *state)
 	flash_area_close(fap);
 	return rc;
 }
-
+#endif
 /* equivalent of boot_swap_type() in mcuboot bootutil_misc.c */
 int mcuboot_swap_type(void)
 {

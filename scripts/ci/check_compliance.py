@@ -547,6 +547,7 @@ UNDEF_KCONFIG_WHITELIST = {
     "USB_CONSOLE",
     "USE_STDC_",
     "WHATEVER",
+    "MCUBOOT",  # Use in dfu/boot/mcuboot.c for being able to build with the MCUBoot bootloader.
 }
 
 
