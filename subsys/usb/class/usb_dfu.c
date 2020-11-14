@@ -816,13 +816,13 @@ static bool is_dfu_started(void)
  *
  * @return  N/A
  */
-void wait_for_usb_dfu(void)
+void wait_for_usb_dfu(uint64_t delay_ms)
 {
 	/* Wait for a prescribed duration of time. If DFU hasn't started within
 	 * that time, stop waiting and proceed further.
 	 */
 	for (int time = 0;
-		time < (CONFIG_USB_DFU_WAIT_DELAY_MS/INTERMITTENT_CHECK_DELAY);
+		time < (delay_ms/INTERMITTENT_CHECK_DELAY);
 		time++) {
 		if (is_dfu_started()) {
 			k_poll_event_init(&dfu_event, K_POLL_TYPE_SIGNAL,
