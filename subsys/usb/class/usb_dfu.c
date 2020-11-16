@@ -815,6 +815,7 @@ static bool is_dfu_started(void)
 void wait_for_usb_dfu(k_timeout_t delay)
 {
 	uint64_t end = z_timeout_end_calc(delay);
+	int rc;
 
 	/* Wait for a prescribed duration of time. If DFU hasn't started within
 	 * that time, stop waiting and proceed further.
@@ -825,7 +826,9 @@ void wait_for_usb_dfu(k_timeout_t delay)
 				K_POLL_MODE_NOTIFY_ONLY, &dfu_signal);
 
 			/* Wait till DFU is complete */
-			if (k_poll(&dfu_event, 1, K_FOREVER) != 0) {
+			// DOWNSTREAM HACK: Spin instead of sleeping, to drain capacitors faster.
+			while ((rc = k_poll(&dfu_event, 1, K_FOREVER)) == -EAGAIN);
+			if (rc != 0) {
 				LOG_DBG("USB DFU Error");
 			}
 
@@ -833,7 +836,7 @@ void wait_for_usb_dfu(k_timeout_t delay)
 			break;
 		}
 
-		k_msleep(INTERMITTENT_CHECK_DELAY);
+		// DOWNSTREAM HACK: Spin instead of sleeping, to drain capacitors faster.
 	}
 }
 
