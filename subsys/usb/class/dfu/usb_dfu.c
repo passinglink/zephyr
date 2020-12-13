@@ -49,6 +49,7 @@
 #include <sys/byteorder.h>
 #include <usb/usb_device.h>
 #include <usb/usb_common.h>
+#include <usb/bos.h>
 #include <usb/class/usb_dfu.h>
 #include <usb_descriptor.h>
 #include <usb_work_q.h>
@@ -603,6 +604,133 @@ static int dfu_class_handle_req(struct usb_setup_packet *pSetup,
 	return 0;
 }
 
+static const uint8_t msos2_descriptor[] = {
+	/* MS OS 2.0 set header descriptor   */
+	0x0A, 0x00,             /* Descriptor size (10 bytes)                 */
+	0x00, 0x00,             /* MS_OS_20_SET_HEADER_DESCRIPTOR             */
+	0x00, 0x00, 0x03, 0x06, /* Windows version (8.1) (0x06030000)         */
+	(0x0A + 0x14 + 0x08), 0x00, /* Length of the MS OS 2.0 descriptor set */
+
+	/* MS OS 2.0 function subset ID descriptor
+	 * This means that the descriptors below will only apply to one
+	 * set of interfaces
+	 */
+	0x08, 0x00, /* Descriptor size (8 bytes) */
+	0x02, 0x00, /* MS_OS_20_SUBSET_HEADER_FUNCTION */
+	0x02,       /* Index of first interface this subset applies to. */
+	0x00,       /* reserved */
+	(0x08 + 0x14), 0x00, /* Length of the MS OS 2.0 descriptor subset */
+
+	/* MS OS 2.0 compatible ID descriptor */
+	0x14, 0x00, /* Descriptor size                */
+	0x03, 0x00, /* MS_OS_20_FEATURE_COMPATIBLE_ID */
+	/* 8-byte compatible ID string, then 8-byte sub-compatible ID string */
+	'W',  'I',  'N',  'U',  'S',  'B',  0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+
+USB_DEVICE_BOS_DESC_DEFINE_CAP struct usb_bos_msosv2_desc {
+	struct usb_bos_platform_descriptor platform;
+	struct usb_bos_capability_msos cap;
+} __packed bos_cap_msosv2 = {
+	/* Microsoft OS 2.0 Platform Capability Descriptor
+	 * See https://docs.microsoft.com/en-us/windows-hardware/drivers/usbcon/
+	 * microsoft-defined-usb-descriptors
+	 * Adapted from the source:
+	 * https://github.com/sowbug/weblight/blob/master/firmware/webusb.c
+	 * (BSD-2) Thanks http://janaxelson.com/files/ms_os_20_descriptors.c
+	 */
+	.platform = {
+		.bLength = sizeof(struct usb_bos_platform_descriptor)
+			+ sizeof(struct usb_bos_capability_msos),
+		.bDescriptorType = USB_DEVICE_CAPABILITY_DESC,
+		.bDevCapabilityType = USB_BOS_CAPABILITY_PLATFORM,
+		.bReserved = 0,
+		.PlatformCapabilityUUID = {
+			/**
+			 * MS OS 2.0 Platform Capability ID
+			 * D8DD60DF-4589-4CC7-9CD2-659D9E648A9F
+			 */
+			0xDF, 0x60, 0xDD, 0xD8,
+			0x89, 0x45,
+			0xC7, 0x4C,
+			0x9C, 0xD2,
+			0x65, 0x9D, 0x9E, 0x64, 0x8A, 0x9F,
+		},
+	},
+	.cap = {
+		/* Windows version (8.1) (0x06030000) */
+		.dwWindowsVersion = sys_cpu_to_le32(0x06030000),
+		.wMSOSDescriptorSetTotalLength =
+			sys_cpu_to_le16(sizeof(msos2_descriptor)),
+		.bMS_VendorCode = 0x02,
+		.bAltEnumCode = 0x00
+	},
+};
+
+#define MSOS_STRING_LENGTH 18
+static struct string_desc {
+	uint8_t bLength;
+	uint8_t bDescriptorType;
+	uint8_t bString[MSOS_STRING_LENGTH];
+} __packed msos1_string_descriptor = {
+	.bLength = MSOS_STRING_LENGTH,
+	.bDescriptorType = USB_STRING_DESC,
+	/* Signature MSFT100 */
+	.bString = {
+		'M', 0x00, 'S', 0x00, 'F', 0x00, 'T', 0x00,
+		'1', 0x00, '0', 0x00, '0', 0x00,
+		0x03, /* Vendor Code, used for a control request */
+		0x00, /* Padding byte for VendorCode looks like UTF16 */
+	},
+};
+
+static const uint8_t msos1_compatid_descriptor[] = {
+	/* See https://github.com/pbatard/libwdi/wiki/WCID-Devices */
+	/* MS OS 1.0 header section */
+	0x28, 0x00, 0x00, 0x00, /* Descriptor size (40 bytes)          */
+	0x00, 0x01,             /* Version 1.00                        */
+	0x04, 0x00,             /* Type: Extended compat ID descriptor */
+	0x01,                   /* Number of function sections         */
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,       /* reserved    */
+
+	/* MS OS 1.0 function section */
+	0x02,     /* Index of interface this section applies to. */
+	0x01,     /* reserved */
+	/* 8-byte compatible ID string, then 8-byte sub-compatible ID string */
+	'W',  'I',  'N',  'U',  'S',  'B',  0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00 /* reserved */
+};
+
+int dfu_vendor_handle_req(struct usb_setup_packet *pSetup, int32_t *len, uint8_t **data)
+{
+	if (pSetup->bRequest == 0x02 && pSetup->wIndex == 0x07) {
+		/* Get MS OS 2.0 Descriptors request */
+		/* 0x07 means "MS_OS_20_DESCRIPTOR_INDEX" */
+		*data = (uint8_t *)(&msos2_descriptor);
+		*len = sizeof(msos2_descriptor);
+
+		LOG_DBG("Get MS OS Descriptors v2");
+
+		return 0;
+	} else if (pSetup->bRequest == 0x03 && pSetup->wIndex == 0x04) {
+		/* Get MS OS 1.0 Descriptors request */
+		/* 0x04 means "Extended compat ID".
+		 * Use 0x05 instead for "Extended properties".
+		 */
+		*data = (uint8_t *)(&msos1_compatid_descriptor);
+		*len = sizeof(msos1_compatid_descriptor);
+
+		LOG_DBG("Get MS OS Descriptors CompatibleID");
+
+		return 0;
+	}
+
+	return -ENOTSUP;
+}
+
+
 /**
  * @brief Callback used to know the USB connection status
  *
@@ -715,6 +843,13 @@ static int dfu_custom_handle_req(struct usb_setup_packet *pSetup,
 			*data_len = 0;
 			return 0;
 		}
+	} else if (GET_DESC_TYPE(pSetup->wValue) == USB_STRING_DESC &&
+		   GET_DESC_INDEX(pSetup->wValue) == 0xEE) {
+		*data = (uint8_t *)(&msos1_string_descriptor);
+		*data_len = sizeof(msos1_string_descriptor);
+		LOG_DBG("Get MS OS Descriptor v1 string");
+
+		return 0;
 	}
 
 	/* Not handled by us */
@@ -737,6 +872,7 @@ USBD_CFG_DATA_DEFINE(primary, dfu) struct usb_cfg_data dfu_config = {
 	.cb_usb_status = dfu_status_cb,
 	.interface = {
 		.class_handler = dfu_class_handle_req,
+		.vendor_handler = dfu_vendor_handle_req,
 		.custom_handler = dfu_custom_handle_req,
 	},
 	.num_endpoints = 0,
@@ -753,6 +889,7 @@ USBD_CFG_DATA_DEFINE(secondary, dfu) struct usb_cfg_data dfu_mode_config = {
 	.cb_usb_status = dfu_status_cb,
 	.interface = {
 		.class_handler = dfu_class_handle_req,
+		.vendor_handler = dfu_vendor_handle_req,
 		.custom_handler = dfu_custom_handle_req,
 	},
 	.num_endpoints = 0,
@@ -801,6 +938,8 @@ static int usb_dfu_init(const struct device *dev)
 
 	dfu_data.flash_upload_size = fa->fa_size;
 	flash_area_close(fa);
+
+	usb_bos_register_cap((void *)&bos_cap_msosv2);
 
 	// DOWNSTREAM HACK: Windows can't do usb resets, so start in dfuIDLE state.
 	dfu_data.state = dfuIDLE;
