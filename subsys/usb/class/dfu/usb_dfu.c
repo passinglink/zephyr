@@ -802,6 +802,14 @@ static int usb_dfu_init(const struct device *dev)
 	dfu_data.flash_upload_size = fa->fa_size;
 	flash_area_close(fa);
 
+	// DOWNSTREAM HACK: Windows can't do usb resets, so start in dfuIDLE state.
+	dfu_data.state = dfuIDLE;
+	dfu_config.usb_device_description = (uint8_t *) &dfu_mode_desc;
+	if (usb_set_config(dfu_config.usb_device_description) != 0) {
+		LOG_ERR("usb_set_config failed in usb_dfu_init");
+		return -EIO;
+	}
+
 	return 0;
 }
 
