@@ -8,6 +8,7 @@
 #include <drivers/i2c.h>
 #include <dt-bindings/i2c/i2c.h>
 #include <nrfx_twim.h>
+#include <hal/nrf_gpio.h>
 #include <sys/util.h>
 
 #include <logging/log.h>
@@ -201,6 +202,9 @@ static void event_handler(nrfx_twim_evt_t const *p_event, void *p_context)
 	k_sem_give(&dev_data->completion_sync);
 }
 
+#define I2C_NRFX_TWIM_FREQUENCY(bitrate)                                       \
+	((((((uint64_t)bitrate) << 32) / 16000000) + 0x800) & 0xFFFFF000)
+
 static int i2c_nrfx_twim_configure(const struct device *dev,
 				   uint32_t dev_config)
 {
@@ -210,17 +214,9 @@ static int i2c_nrfx_twim_configure(const struct device *dev,
 		return -EINVAL;
 	}
 
-	switch (I2C_SPEED_GET(dev_config)) {
-	case I2C_SPEED_STANDARD:
-		nrf_twim_frequency_set(inst->p_twim, NRF_TWIM_FREQ_100K);
-		break;
-	case I2C_SPEED_FAST:
-		nrf_twim_frequency_set(inst->p_twim, NRF_TWIM_FREQ_400K);
-		break;
-	default:
-		LOG_ERR("unsupported speed");
-		return -EINVAL;
-	}
+	nrf_twim_frequency_set(
+		inst->p_twim,
+		I2C_NRFX_TWIM_FREQUENCY(I2C_SPEED_GET(dev_config)));
 	get_dev_data(dev)->dev_config = dev_config;
 
 	return 0;
@@ -243,6 +239,14 @@ static int init_twim(const struct device *dev)
 			dev->name);
 		return -EBUSY;
 	}
+
+#define TWIM_PIN_INIT(_pin)                                                    \
+	nrf_gpio_cfg((_pin), NRF_GPIO_PIN_DIR_INPUT,                           \
+		     NRF_GPIO_PIN_INPUT_CONNECT, NRF_GPIO_PIN_PULLUP,          \
+		     NRF_GPIO_PIN_H0D1, NRF_GPIO_PIN_NOSENSE)
+	// Configure the pins as high drive strength.
+	TWIM_PIN_INIT(get_dev_config(dev)->config.scl);
+	TWIM_PIN_INIT(get_dev_config(dev)->config.sda);
 
 #ifdef CONFIG_DEVICE_POWER_MANAGEMENT
 	get_dev_data(dev)->pm_state = DEVICE_PM_ACTIVE_STATE;
@@ -302,13 +306,6 @@ static int twim_nrfx_pm_control(const struct device *dev,
 }
 #endif /* CONFIG_DEVICE_POWER_MANAGEMENT */
 
-#define I2C_NRFX_TWIM_INVALID_FREQUENCY  ((nrf_twim_frequency_t)-1)
-#define I2C_NRFX_TWIM_FREQUENCY(bitrate)				       \
-	 (bitrate == I2C_BITRATE_STANDARD ? NRF_TWIM_FREQ_100K		       \
-	: bitrate == 250000               ? NRF_TWIM_FREQ_250K		       \
-	: bitrate == I2C_BITRATE_FAST     ? NRF_TWIM_FREQ_400K		       \
-					  : I2C_NRFX_TWIM_INVALID_FREQUENCY)
-
 #define I2C(idx) DT_NODELABEL(i2c##idx)
 #define I2C_FREQUENCY(idx)						       \
 	I2C_NRFX_TWIM_FREQUENCY(DT_PROP(I2C(idx), clock_frequency))
@@ -321,9 +318,6 @@ static int twim_nrfx_pm_control(const struct device *dev,
 	.concat_buf_size = CONCAT_BUF_SIZE(idx),), ())
 
 #define I2C_NRFX_TWIM_DEVICE(idx)					       \
-	BUILD_ASSERT(I2C_FREQUENCY(idx) !=				       \
-		     I2C_NRFX_TWIM_INVALID_FREQUENCY,			       \
-		     "Wrong I2C " #idx " frequency setting in dts");	       \
 	static int twim_##idx##_init(const struct device *dev)		       \
 	{								       \
 		IRQ_CONNECT(DT_IRQN(I2C(idx)), DT_IRQ(I2C(idx), priority),     \
